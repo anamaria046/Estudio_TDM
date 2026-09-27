@@ -1,7 +1,7 @@
 const http = require("http");
 const fs = require("fs/promises");
 const path = require("path");
-const handleItemsRoutes = require("./routes/items");
+const handleItemsRoutes = require("./routers/items");
 
 const PORT = 3001;
 const PUBLIC_PATH = path.join(__dirname, "..", "public");
