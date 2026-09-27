@@ -1,106 +1,62 @@
-const fs = require("fs");
-const path = require("path");
+import { Router } from "express";
+import { getAllItems, findItem, insertItem, modifyItem, removeItem } from "../db/db.js";
 
-const DATA_PATH = path.join(__dirname, "..", "data", "items.json");
+const router = Router();
 
-function readData() {
-    try {
-        if (!fs.existsSync(DATA_PATH)) {
-            fs.writeFileSync(DATA_PATH, "[]");
-            return [];
-        }
-        const content = fs.readFileSync(DATA_PATH, "utf8").trim();
-        return content ? JSON.parse(content) : [];
-    } catch (err) {
-        console.error("Error leyendo items.json:", err);
-        return [];
+router.param("id", (req, res, next, value) => {
+    const id = Number(value);
+    if (!Number.isInteger(id)) {
+        return res.status(400).json({ error: "id is not a number" });
     }
-}
+    req.itemId = id;
+    next();
+});
 
-function writeData(data) {
-    fs.writeFileSync(DATA_PATH, JSON.stringify(data, null, 2));
-}
+// GET /api/items
+router.get("/", (req, res) => {
+    res.json(getAllItems());
+});
 
-function handleItemsRoutes(req, res) {
-    if (!req.url.startsWith("/api/items")) return false;
+// GET /api/items/:id
+router.get("/:id", (req, res) => {
+    const item = findItem(req.itemId);
+    if (!item) return res.status(404).json({ error: "Item not found" });
+    res.json(item);
+});
 
-    res.setHeader("Content-Type", "application/json");
-
-    // GET /api/items
-    if (req.method === "GET" && req.url === "/api/items") {
-        res.end(JSON.stringify(readData()));
-        return true;
-    }
-
-    // GET /api/items/:id
-    if (req.method === "GET" && req.url.startsWith("/api/items/")) {
-        const id = parseInt(req.url.split("/").pop());
-
-        if (!isNaN(id)) {
-            const item = readData().find(i => i.id === id);
-            res.end(JSON.stringify(item || { error: "No encontrado" }));
-            return true;
-        }
+// POST /api/items
+router.post("/", async (req, res) => {
+    const { name, description } = req.body ?? {};
+    if (!name || !name.trim()) {
+        return res.status(400).json({ error: "Field 'name' is obligatory" });
     }
 
-    // POST /api/items
-    if (req.method === "POST" && req.url === "/api/items") {
-        let body = "";
-        req.on("data", chunk => body += chunk);
-        req.on("end", () => {
-            const items = readData();
-            const nuevo = JSON.parse(body);
-            nuevo.id = Date.now();
-            items.push(nuevo);
-            writeData(items);
-            res.end(JSON.stringify(nuevo));
-        });
-        return true;
+    const nuevo = await insertItem({ name: name.trim(), description: description?.trim() });
+    res.status(201).json(nuevo);
+});
+
+// PUT /api/items/:id
+router.put("/:id", async (req, res) => {
+    const { name, description } = req.body ?? {};
+    if (name !== undefined && !name.trim()) {
+        return res.status(400).json({ error: "Field 'name' cannot be empty" });
     }
 
-    // PUT /api/items/:id
-    if (req.method === "PUT" && req.url.startsWith("/api/items/")) {
-        const id = parseInt(req.url.split("/").pop());
+    const changes = {};
+    if (name !== undefined) changes.name = name.trim();
+    if (description !== undefined) changes.description = description.trim();
 
-        if (!isNaN(id)) {
-            let body = "";
-            req.on("data", chunk => body += chunk);
-            req.on("end", () => {
-                let items = readData();
-                const idx = items.findIndex(i => i.id === id);
+    const actualizado = await modifyItem(req.itemId, changes);
 
-                if (idx >= 0) {
-                    const updated = { ...items[idx], ...JSON.parse(body), id };
-                    items[idx] = updated;
-                    writeData(items);
-                    res.end(JSON.stringify(updated));
-                } else {
-                    res.end(JSON.stringify({ error: "No encontrado" }));
-                }
-            });
-            return true;
-        }
-    }
+    if (!actualizado) return res.status(404).json({ error: "Item not found" });
+    res.json(actualizado);
+});
 
-    // DELETE /api/items/:id
-    if (req.method === "DELETE" && req.url.startsWith("/api/items/")) {
-        const id = parseInt(req.url.split("/").pop());
+// DELETE /api/items/:id
+router.delete("/:id", async (req, res) => {
+    const eliminado = await removeItem(req.itemId);
+    if (!eliminado) return res.status(404).json({ error: "Item not found" });
+    res.status(200).json({ mensaje: "Item removed", id: req.itemId });
+});
 
-        if (!isNaN(id)) {
-            let items = readData();
-            const newItems = items.filter(i => i.id !== id);
-
-            if (newItems.length !== items.length) {
-                writeData(newItems);
-                res.end(JSON.stringify({ mensaje: "Eliminado" }));
-            } else {
-                res.end(JSON.stringify({ error: "No encontrado" }));
-            }
-            return true;
-        }
-    }
-
-    return false;
-}
-
-module.exports = handleItemsRoutes;
+export default router;
